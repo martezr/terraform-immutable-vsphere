@@ -1,28 +1,73 @@
-resource "vsphere_virtual_machine" "DB01" {
-  name       = "terraform-db"
-  vcpu       = 2
-  memory     = 4096
+provider "vsphere" {
+  user           = "${var.vsphere_user}"
+  password       = "${var.vsphere_password}"
+  vsphere_server = "${var.vsphere_server}"
 
-  detach_unknown_disks_on_delete = "true"
-  enable_disk_uuid = "true"
+  # If you have a self-signed cert
+  allow_unverified_ssl = true
+}
 
+data "vsphere_datacenter" "dc" {
+  name = "${var.vsphere_datacenter}"
+}
+
+data "vsphere_datastore" "datastore" {
+  name          = "${var.vsphere_datastore}"
+  datacenter_id = "${data.vsphere_datacenter.dc.id}"
+}
+
+data "vsphere_compute_cluster" "cluster" {
+  name          = "${var.vsphere_cluster}"
+  datacenter_id = "${data.vsphere_datacenter.dc.id}"
+}
+
+data "vsphere_network" "network" {
+  name          = "${var.vsphere_network}"
+  datacenter_id = "${data.vsphere_datacenter.dc.id}"
+}
+
+data "vsphere_virtual_machine" "template" {
+  name          = "${var.vsphere_template}"
+  datacenter_id = "${data.vsphere_datacenter.dc.id}"
+}
+
+resource "vsphere_virtual_machine" "vault" {  
+  name             = "${var.vm_name}.${var.vm_domain_name}"
+  num_cpus         = "${var.vm_cpus}"
+  memory           = "${var.vm_memory}"
+  resource_pool_id = "${data.vsphere_compute_cluster.cluster.resource_pool_id}"
+  datastore_id     = "${data.vsphere_datastore.datastore.id}"
+
+  guest_id         = "${data.vsphere_virtual_machine.template.guest_id}"
+  scsi_type        = "${data.vsphere_virtual_machine.template.scsi_type}"
 
   network_interface {
-    label              = "VM Network"
-    ipv4_address       = "192.168.1.5"
-    ipv4_prefix_length = "24"
-    ipv4_gateway       = "192.168.1.254"
+    network_id   = "${data.vsphere_network.network.id}"
+    adapter_type = "${data.vsphere_virtual_machine.template.network_interface_types[0]}"
   }
 
   disk {
-    template = "centos7temp"
-    type     = "thin"
+    label            = "disk0"
+    size             = "${data.vsphere_virtual_machine.template.disks.0.size}"
+    eagerly_scrub    = "${data.vsphere_virtual_machine.template.disks.0.eagerly_scrub}"
+    thin_provisioned = "${data.vsphere_virtual_machine.template.disks.0.thin_provisioned}"
   }
 
-  disk {
-    vmdk           = "DBDisk01.vmdk"
-    datastore      = "Local_Storage"
-    type           = "thin"
-    keep_on_remove = "true"
+  clone {
+    template_uuid = "${data.vsphere_virtual_machine.template.id}"
+
+    customize {
+      linux_options {
+        host_name = "${var.vm_name}"
+        domain    = "${var.vm_domain_name}"
+      }
+
+      network_interface {
+        ipv4_address = "${var.vm_ip_address}"
+        ipv4_netmask = "${var.vm_network_cidr}"
+      }
+      dns_server_list = ["${var.vm_dns_server}"]
+      ipv4_gateway = "${var.vm_default_gateway}"
+    }
   }
 }

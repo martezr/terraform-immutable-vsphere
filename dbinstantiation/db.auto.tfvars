@@ -1,0 +1,13 @@
+vsphere_datacenter = "GRT"
+vsphere_cluster    = "GRT-Cluster"
+vsphere_datastore  = "Local_Storage"
+vsphere_network    = "VM Network"
+vsphere_template   = "centos7base"
+
+vm_name            = "grtmongodb01"
+vm_cpus            = "2"
+vm_memory          = "4096"
+vm_domain_name     = "grt.local"
+vm_ip_address      = "192.168.1.5"
+vm_network_cidr    = "24"
+vm_default_gateway = "192.168.1.254"
