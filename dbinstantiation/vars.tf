@@ -58,3 +58,7 @@ variable "vm_network_cidr" {
   description = "Virtual machine network cidr"
   default = 24
 }
+
+variable "vm_dns_server" {
+  description = "Virtual machine dns server"
+}

@@ -31,3 +31,6 @@ pm2 start server.js
 
 # Install app as a service
 pm2 startup systemd
+
+systemctl disable firewalld
+systemctl stop firewalld

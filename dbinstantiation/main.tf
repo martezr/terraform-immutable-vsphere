@@ -1,4 +1,5 @@
 provider "vsphere" {
+  version = "1.5"
   user           = "${var.vsphere_user}"
   password       = "${var.vsphere_password}"
   vsphere_server = "${var.vsphere_server}"
@@ -31,7 +32,7 @@ data "vsphere_virtual_machine" "template" {
   datacenter_id = "${data.vsphere_datacenter.dc.id}"
 }
 
-resource "vsphere_virtual_machine" "vault" {  
+resource "vsphere_virtual_machine" "mongodb" {  
   name             = "${var.vm_name}.${var.vm_domain_name}"
   num_cpus         = "${var.vm_cpus}"
   memory           = "${var.vm_memory}"
@@ -53,6 +54,14 @@ resource "vsphere_virtual_machine" "vault" {
     thin_provisioned = "${data.vsphere_virtual_machine.template.disks.0.thin_provisioned}"
   }
 
+  disk {
+    label        = "disk1"
+    attach       = true
+    path         = "persistent_disks\\DBDisk01.vmdk"
+    unit_number  = 1
+    datastore_id = "${data.vsphere_datastore.datastore.id}"
+  }
+
   clone {
     template_uuid = "${data.vsphere_virtual_machine.template.id}"
 
@@ -70,4 +79,29 @@ resource "vsphere_virtual_machine" "vault" {
       ipv4_gateway = "${var.vm_default_gateway}"
     }
   }
+
+  provisioner "file" {
+    source      = "hdprep.sh"
+    destination = "hdprep.sh"
+
+    connection {
+      type        = "ssh"
+      user        = "root"
+      password    = "${var.vsphere_password}"
+    }
+  }
+
+ provisioner "remote-exec" {
+    connection {
+      type        = "ssh"
+      user        = "root"
+      password    = "${var.vsphere_password}"
+    }
+
+    inline = [
+      "setenforce 0",
+      "chmod +x /root/hdprep.sh && sh /root/hdprep.sh"
+    ]
+  }
+
 }

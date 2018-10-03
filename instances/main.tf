@@ -1,13 +1,80 @@
-resource "vsphere_virtual_machine" "Node01" {
-  name       = "terraform-node"
-  vcpu       = 2
-  memory     = 4096  
+provider "vsphere" {
+  version = "1.5"
+  user           = "${var.vsphere_user}"
+  password       = "${var.vsphere_password}"
+  vsphere_server = "${var.vsphere_server}"
+
+  # If you have a self-signed cert
+  allow_unverified_ssl = true
+}
+
+data "vsphere_datacenter" "dc" {
+  name = "${var.vsphere_datacenter}"
+}
+
+data "vsphere_datastore" "datastore" {
+  name          = "${var.vsphere_datastore}"
+  datacenter_id = "${data.vsphere_datacenter.dc.id}"
+}
+
+data "vsphere_compute_cluster" "cluster" {
+  name          = "${var.vsphere_cluster}"
+  datacenter_id = "${data.vsphere_datacenter.dc.id}"
+}
+
+data "vsphere_network" "network" {
+  name          = "${var.vsphere_network}"
+  datacenter_id = "${data.vsphere_datacenter.dc.id}"
+}
+
+data "vsphere_virtual_machine" "template" {
+  name          = "${var.vsphere_template}"
+  datacenter_id = "${data.vsphere_datacenter.dc.id}"
+}
+
+data "vsphere_virtual_machine" "mongodb_template" {
+  name          = "${var.vsphere_mongodb_template}"
+  datacenter_id = "${data.vsphere_datacenter.dc.id}"
+}
+
+resource "vsphere_virtual_machine" "node" {  
+  name             = "${var.node_vm_name}.${var.vm_domain_name}"
+  num_cpus         = "${var.vm_cpus}"
+  memory           = "${var.vm_memory}"
+  resource_pool_id = "${data.vsphere_compute_cluster.cluster.resource_pool_id}"
+  datastore_id     = "${data.vsphere_datastore.datastore.id}"
+
+  guest_id         = "${data.vsphere_virtual_machine.template.guest_id}"
+  scsi_type        = "${data.vsphere_virtual_machine.template.scsi_type}"
 
   network_interface {
-    label              = "VM Network"
-    ipv4_address       = "192.168.1.4"
-    ipv4_prefix_length = "24"
-    ipv4_gateway       = "192.168.1.254"
+    network_id   = "${data.vsphere_network.network.id}"
+    adapter_type = "${data.vsphere_virtual_machine.template.network_interface_types[0]}"
+  }
+
+  disk {
+    label            = "disk0"
+    size             = "${data.vsphere_virtual_machine.template.disks.0.size}"
+    eagerly_scrub    = "${data.vsphere_virtual_machine.template.disks.0.eagerly_scrub}"
+    thin_provisioned = "${data.vsphere_virtual_machine.template.disks.0.thin_provisioned}"
+  }
+
+  clone {
+    template_uuid = "${data.vsphere_virtual_machine.template.id}"
+
+    customize {
+      linux_options {
+        host_name = "${var.node_vm_name}"
+        domain    = "${var.vm_domain_name}"
+      }
+
+      network_interface {
+        ipv4_address = "${var.node_vm_ip_address}"
+        ipv4_netmask = "${var.vm_network_cidr}"
+      }
+      dns_server_list = ["${var.vm_dns_server}"]
+      ipv4_gateway = "${var.vm_default_gateway}"
+    }
   }
 
   provisioner "file" {
@@ -16,18 +83,16 @@ resource "vsphere_virtual_machine" "Node01" {
 
     connection {
       type        = "ssh"
-      host        = "192.168.1.4"
       user        = "root"
-      password    = "password"
+      password    = "${var.vsphere_password}"
     }
   }
 
  provisioner "remote-exec" {
     connection {
       type        = "ssh"
-      host        = "192.168.1.4"
       user        = "root"
-      password    = "password"
+      password    = "${var.vsphere_password}"
     }
 
     inline = [
@@ -36,31 +101,54 @@ resource "vsphere_virtual_machine" "Node01" {
     ]
   }
 
-
-  disk {
-    template = "centos7temp"
-    type     = "thin"
-    datastore = "Local_Storage"
-  }
 }
 
+resource "vsphere_virtual_machine" "mongodb" {  
+  name             = "${var.mongo_vm_name}.${var.vm_domain_name}"
+  num_cpus         = "${var.vm_cpus}"
+  memory           = "${var.vm_memory}"
+  resource_pool_id = "${data.vsphere_compute_cluster.cluster.resource_pool_id}"
+  datastore_id     = "${data.vsphere_datastore.datastore.id}"
 
-
-
-resource "vsphere_virtual_machine" "DB01" {
-  name       = "terraform-db"
-  vcpu       = 2
-  memory     = 4096
-
-  detach_unknown_disks_on_delete = "true"
-  enable_disk_uuid = "true"
-
+  guest_id         = "${data.vsphere_virtual_machine.mongodb_template.guest_id}"
+  scsi_type        = "${data.vsphere_virtual_machine.mongodb_template.scsi_type}"
 
   network_interface {
-    label              = "VM Network"
-    ipv4_address       = "192.168.1.5"
-    ipv4_prefix_length = "24"
-    ipv4_gateway       = "192.168.1.254"
+    network_id   = "${data.vsphere_network.network.id}"
+    adapter_type = "${data.vsphere_virtual_machine.template.network_interface_types[0]}"
+  }
+
+  disk {
+    label            = "disk0"
+    size             = "${data.vsphere_virtual_machine.mongodb_template.disks.0.size}"
+    eagerly_scrub    = "${data.vsphere_virtual_machine.mongodb_template.disks.0.eagerly_scrub}"
+    thin_provisioned = "${data.vsphere_virtual_machine.mongodb_template.disks.0.thin_provisioned}"
+  }
+
+  disk {
+    label        = "disk1"
+    attach       = true
+    path         = "persistent_disks\\DBDisk01.vmdk"
+    unit_number  = 1
+    datastore_id = "${data.vsphere_datastore.datastore.id}"
+  }
+
+  clone {
+    template_uuid = "${data.vsphere_virtual_machine.mongodb_template.id}"
+
+    customize {
+      linux_options {
+        host_name = "${var.mongo_vm_name}"
+        domain    = "${var.vm_domain_name}"
+      }
+
+      network_interface {
+        ipv4_address = "${var.mongo_vm_ip_address}"
+        ipv4_netmask = "${var.vm_network_cidr}"
+      }
+      dns_server_list = ["${var.vm_dns_server}"]
+      ipv4_gateway = "${var.vm_default_gateway}"
+    }
   }
 
   provisioner "file" {
@@ -69,38 +157,22 @@ resource "vsphere_virtual_machine" "DB01" {
 
     connection {
       type        = "ssh"
-      host        = "192.168.1.5"
       user        = "root"
-      password    = "password"
+      password    = "${var.vsphere_password}"
     }
   }
 
  provisioner "remote-exec" {
     connection {
       type        = "ssh"
-      host        = "192.168.1.5"
       user        = "root"
-      password    = "password"
+      password    = "${var.vsphere_password}"
     }
 
     inline = [
-      "mkdir /mongodb",
-      "echo '/dev/sdb	/mongodb  ext4	defaults  0 0' >> /etc/fstab",
-      "mount -a",
+      "setenforce 0",
       "chmod +x /root/mongodbinstall.sh && sh /root/mongodbinstall.sh"
     ]
   }
 
-
-  disk {
-    template = "centos7temp"
-    type     = "thin"
-  }
-
-  disk {
-    vmdk           = "DBDisk01.vmdk"
-    datastore      = "Local_Storage"
-    type           = "thin"
-    keep_on_remove = "true"
-  }
 }

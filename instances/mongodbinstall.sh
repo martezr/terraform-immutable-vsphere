@@ -1,5 +1,9 @@
 #!/bin/bash
 
+mkdir /mongodb
+echo '/dev/sdb	/mongodb  ext4	defaults  0 0' >> /etc/fstab
+mount -a
+
 cat << EOF > /etc/mongod.conf
 # mongod.conf
 
@@ -29,7 +33,7 @@ processManagement:
 # network interfaces
 net:
   port: 27017
-#  bindIp: 127.0.0.1  # Listen to local interface only, comment to listen on all interfaces.
+  bindIp: 0.0.0.0  # Listen to local interface only, comment to listen on all interfaces.
 
 EOF
 
@@ -38,4 +42,9 @@ chmod 755 -Rf /mongodb
 
 setenforce 0
 
-systemctl start mongod
+systemctl enable mongod
+systemctl restart mongod
+
+systemctl disable firewalld
+systemctl stop firewalld
+
